@@ -20,11 +20,41 @@
 
 ## Настройка Zoom
 
+### 1. Настройки записи в Zoom
+
 1. Включи опцию **"Загружать облачные записи"** (Allow downloads)
 2. Включи общий доступ **"зрители могут просматривать запись"**
-3. Настрой webhook в Zoom Marketplace:
-   - Событие: `recording.completed`
-   - Endpoint URL: `https://your-railway-app.railway.app/zoom/webhook`
+
+### 2. Настройка Webhook в Zoom
+
+**Важно:** Webhook должен быть настроен правильно, иначе бот не получит уведомления о завершении записи.
+
+#### Шаги настройки:
+
+1. Перейди в [Zoom Marketplace](https://marketplace.zoom.us/)
+2. Войди в свой аккаунт
+3. Перейди в раздел **"Develop"** → **"Build App"** или **"Manage"** → **"Created Apps"**
+4. Создай новое приложение или выбери существующее
+5. В настройках приложения найди раздел **"Webhook"** или **"Event Subscriptions"**
+6. Добавь новый webhook:
+   - **Event Subscription URL**: `https://your-railway-app.railway.app/zoom/webhook`
+   - **Events**: Выбери событие `recording.completed` (Recording has completed)
+7. Сохрани настройки
+8. Zoom может отправить тестовый запрос для валидации - проверь логи в Railway
+
+#### Проверка webhook:
+
+- После настройки Zoom может отправить GET запрос для валидации
+- Проверь логи Railway - должно появиться сообщение "GET запрос на /zoom/webhook"
+- Если webhook настроен правильно, после завершения записи в логах появится "POST запрос на /zoom/webhook получен"
+
+#### Отладка:
+
+- Если webhook не приходит, проверь:
+  1. Правильность URL (должен быть доступен из интернета)
+  2. Что событие `recording.completed` включено в Zoom
+  3. Логи Railway на наличие входящих запросов
+  4. Используй `/zoom/webhook/test` для тестирования вручную
 
 ## Переменные окружения
 

@@ -1,10 +1,15 @@
 import os
 import asyncio
 import tempfile
+import logging
 from fastapi import FastAPI, Request
 from telegram_logic import send_message_to_telegram, send_file_to_telegram
 from zoom_logic import download_zoom_file, transcribe_audio
 from text_logic import convert_to_plans_and_tasks
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -16,11 +21,43 @@ def root():
 
 @app.get("/test")
 def test():
+    """Тестовая отправка сообщения в Telegram"""
     try:
         send_message_to_telegram("Тестовое сообщение с Railway 🚂")
         return {"sent": True}
     except Exception as e:
         return {"sent": False, "error": str(e)}
+
+
+@app.post("/zoom/webhook/test")
+async def test_webhook(request: Request):
+    """Тестовый endpoint для проверки webhook - принимает любой POST и логирует"""
+    try:
+        body = await request.body()
+        logger.info("=" * 50)
+        logger.info("ТЕСТОВЫЙ WEBHOOK получен")
+        logger.info(f"Headers: {dict(request.headers)}")
+        logger.info(f"Body: {body.decode('utf-8', errors='ignore')}")
+        
+        try:
+            data = await request.json()
+            logger.info(f"Parsed JSON: {data}")
+        except:
+            pass
+            
+        return {"status": "received", "message": "Test webhook received"}
+    except Exception as e:
+        logger.error(f"Ошибка в тестовом webhook: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/zoom/webhook")
+async def zoom_webhook_get(request: Request):
+    """
+    Обрабатывает GET запрос от Zoom для валидации webhook
+    """
+    logger.info("GET запрос на /zoom/webhook - валидация webhook от Zoom")
+    return {"status": "ok", "message": "Webhook endpoint is active"}
 
 
 @app.post("/zoom/webhook")
@@ -30,23 +67,48 @@ async def zoom_webhook(request: Request):
     Ожидает событие 'recording.completed' с download_url.
     """
     try:
-        data = await request.json()
-        print("ZOOM WEBHOOK:", data)
+        # Логируем все входящие запросы
+        logger.info("=" * 50)
+        logger.info("POST запрос на /zoom/webhook получен")
+        logger.info(f"Headers: {dict(request.headers)}")
+        
+        # Пробуем получить данные
+        try:
+            data = await request.json()
+            logger.info(f"Webhook data: {data}")
+        except Exception as json_error:
+            # Если не JSON, пробуем получить как текст
+            body = await request.body()
+            logger.error(f"Ошибка парсинга JSON: {json_error}")
+            logger.error(f"Raw body: {body.decode('utf-8', errors='ignore')}")
+            return {"status": "error", "error": "Invalid JSON"}
         
         # Проверяем тип события
         event = data.get("event", "")
+        logger.info(f"Тип события: {event}")
         
         if event != "recording.completed":
-            print(f"Игнорируем событие: {event}")
+            logger.info(f"Игнорируем событие: {event}")
+            # Отправляем уведомление о других событиях для отладки
+            try:
+                send_message_to_telegram(f"📥 Получено событие от Zoom: {event}")
+            except:
+                pass
             return {"status": "ignored", "event": event}
         
         # Извлекаем download_url из payload
         payload = data.get("payload", {})
+        logger.info(f"Payload: {payload}")
+        
         object_data = payload.get("object", {})
         recording_files = object_data.get("recording_files", [])
         
+        logger.info(f"Найдено файлов записи: {len(recording_files)}")
+        
         if not recording_files:
-            send_message_to_telegram("⚠️ Запись завершена, но файлы не найдены")
+            error_msg = "⚠️ Запись завершена, но файлы не найдены"
+            logger.warning(error_msg)
+            send_message_to_telegram(error_msg)
             return {"status": "no_files"}
         
         # Ищем аудио файл (MP3, M4A) или берем первый доступный
@@ -54,6 +116,7 @@ async def zoom_webhook(request: Request):
         for file in recording_files:
             file_type = file.get("file_type", "").lower()
             file_extension = file.get("file_extension", "").lower()
+            logger.info(f"Файл: type={file_type}, ext={file_extension}")
             if file_type == "audio" or file_extension in ["mp3", "m4a", "wav"]:
                 recording_file = file
                 break
@@ -63,22 +126,28 @@ async def zoom_webhook(request: Request):
             recording_file = recording_files[0]
         
         download_url = recording_file.get("download_url")
+        logger.info(f"Download URL: {download_url[:100] if download_url else 'None'}...")
         
         if not download_url:
-            send_message_to_telegram("⚠️ Запись завершена, но download_url отсутствует")
+            error_msg = "⚠️ Запись завершена, но download_url отсутствует"
+            logger.warning(error_msg)
+            send_message_to_telegram(error_msg)
             return {"status": "no_download_url"}
         
         meeting_topic = object_data.get("topic", "Встреча")
+        logger.info(f"Тема встречи: {meeting_topic}")
         
         # Быстро отвечаем на webhook, чтобы избежать таймаута
         # Обработку запускаем в фоне
+        logger.info("Запускаю асинхронную обработку записи...")
         asyncio.create_task(process_recording_async(download_url, recording_file, meeting_topic))
         
+        logger.info("Webhook обработан успешно")
         return {"status": "accepted", "meeting": meeting_topic}
             
     except Exception as e:
         error_msg = f"❌ Ошибка обработки webhook: {str(e)}"
-        print(error_msg)
+        logger.error(error_msg, exc_info=True)
         try:
             send_message_to_telegram(error_msg)
         except:
@@ -91,6 +160,7 @@ async def process_recording_async(download_url: str, recording_file: dict, meeti
     Асинхронная обработка записи: скачивание, транскрипция и отправка в Telegram
     """
     try:
+        logger.info(f"Начало обработки записи: {meeting_topic}")
         # Отправляем уведомление о начале обработки
         send_message_to_telegram(f"🎥 Обрабатываю запись: *{meeting_topic}*")
         
@@ -120,7 +190,7 @@ async def process_recording_async(download_url: str, recording_file: dict, meeti
             
     except Exception as e:
         error_msg = f"❌ Ошибка обработки записи: {str(e)}"
-        print(error_msg)
+        logger.error(error_msg, exc_info=True)
         try:
             send_message_to_telegram(error_msg)
         except:
