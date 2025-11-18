@@ -116,6 +116,18 @@ async def zoom_webhook(request: Request):
         event = data.get("event", "")
         logger.info(f"Тип события: {event}")
         
+        # Обработка валидации URL от Zoom (challenge-response)
+        if event == "endpoint.url_validation":
+            payload = data.get("payload", {})
+            plain_token = payload.get("plainToken")
+            if plain_token:
+                logger.info(f"Валидация URL: получен plainToken: {plain_token}")
+                # Zoom ожидает получить токен обратно для подтверждения владения endpoint
+                return {"plainToken": plain_token}
+            else:
+                logger.warning("Валидация URL: plainToken не найден в payload")
+                return {"status": "error", "error": "plainToken not found"}
+        
         if event != "recording.completed":
             logger.info(f"Игнорируем событие: {event}")
             # Отправляем уведомление о других событиях для отладки
