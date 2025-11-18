@@ -202,12 +202,15 @@ async def zoom_webhook(request: Request):
             return {"status": "no_download_url"}
         
         meeting_topic = object_data.get("topic", "Встреча")
+        download_token = data.get("download_token")
         logger.info(f"Тема встречи: {meeting_topic}")
         
         # Быстро отвечаем на webhook, чтобы избежать таймаута
         # Обработку запускаем в фоне
         logger.info("Запускаю асинхронную обработку записи...")
-        asyncio.create_task(process_recording_async(download_url, recording_file, meeting_topic))
+        asyncio.create_task(
+            process_recording_async(download_url, recording_file, meeting_topic, download_token)
+        )
         
         logger.info("Webhook обработан успешно")
         return {"status": "accepted", "meeting": meeting_topic}
@@ -222,7 +225,9 @@ async def zoom_webhook(request: Request):
         return {"status": "error", "error": str(e)}
 
 
-async def process_recording_async(download_url: str, recording_file: dict, meeting_topic: str):
+async def process_recording_async(
+    download_url: str, recording_file: dict, meeting_topic: str, download_token: str | None = None
+):
     """
     Асинхронная обработка записи: скачивание, транскрипция и отправка в Telegram
     """
@@ -237,7 +242,7 @@ async def process_recording_async(download_url: str, recording_file: dict, meeti
             file_path = os.path.join(temp_dir, f"recording.{file_extension}")
             
             # Скачиваем файл
-            download_zoom_file(download_url, file_path)
+            download_zoom_file(download_url, file_path, access_token=download_token)
             
             # Отправляем файл записи в Telegram
             send_message_to_telegram(f"📹 Отправляю запись встречи: *{meeting_topic}*")
