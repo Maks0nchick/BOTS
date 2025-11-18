@@ -54,13 +54,26 @@ async def test_webhook(request: Request):
 @app.get("/zoom/webhook")
 async def zoom_webhook_get(request: Request):
     """
-    Обрабатывает GET запрос от Zoom для валидации webhook
+    Обрабатывает GET запрос от Zoom для валидации webhook (challenge-response)
+    Zoom отправляет GET запрос с параметром 'plainToken' и ожидает его в ответе
     """
     logger.info("=" * 50)
     logger.info("GET запрос на /zoom/webhook - валидация webhook от Zoom")
     logger.info(f"Headers: {dict(request.headers)}")
     logger.info(f"Query params: {dict(request.query_params)}")
-    return {"status": "ok", "message": "Webhook endpoint is active"}
+    
+    # Zoom отправляет challenge-токен для валидации
+    plain_token = request.query_params.get("plainToken")
+    
+    if plain_token:
+        logger.info(f"Получен challenge token: {plain_token}")
+        # Zoom ожидает получить токен обратно в ответе
+        # Это подтверждает, что мы владеем этим endpoint
+        return {"plainToken": plain_token}
+    else:
+        # Если токена нет, возвращаем обычный ответ
+        logger.info("Challenge token не найден, возвращаю обычный ответ")
+        return {"status": "ok", "message": "Webhook endpoint is active"}
 
 
 @app.get("/zoom/webhook/status")
