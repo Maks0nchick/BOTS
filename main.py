@@ -56,8 +56,24 @@ async def zoom_webhook_get(request: Request):
     """
     Обрабатывает GET запрос от Zoom для валидации webhook
     """
+    logger.info("=" * 50)
     logger.info("GET запрос на /zoom/webhook - валидация webhook от Zoom")
+    logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"Query params: {dict(request.query_params)}")
     return {"status": "ok", "message": "Webhook endpoint is active"}
+
+
+@app.get("/zoom/webhook/status")
+async def webhook_status():
+    """
+    Проверка статуса webhook endpoint
+    """
+    return {
+        "status": "active",
+        "endpoint": "/zoom/webhook",
+        "methods": ["GET", "POST"],
+        "message": "Webhook готов принимать запросы от Zoom"
+    }
 
 
 @app.post("/zoom/webhook")
