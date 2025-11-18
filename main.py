@@ -178,38 +178,31 @@ async def zoom_webhook(request: Request):
             send_message_to_telegram(error_msg)
             return {"status": "no_files"}
         
-        # Ищем аудио файл (MP3, M4A) или берем первый доступный
-        recording_file = None
+        audio_file = None
+        video_file = None
         for file in recording_files:
             file_type = file.get("file_type", "").lower()
             file_extension = file.get("file_extension", "").lower()
             logger.info(f"Файл: type={file_type}, ext={file_extension}")
-            if file_type == "audio" or file_extension in ["mp3", "m4a", "wav"]:
-                recording_file = file
-                break
+            if not audio_file and (file_type == "audio" or file_extension in ["mp3", "m4a", "wav"]):
+                audio_file = file
+            if not video_file and (file_type in ["shared_screen_with_speaker_view", "video"] or file_extension in ["mp4", "mov", "mkv"]):
+                video_file = file
         
-        # Если аудио не найдено, берем первый файл (обычно это видео с аудио)
-        if not recording_file:
-            recording_file = recording_files[0]
-        
-        download_url = recording_file.get("download_url")
-        logger.info(f"Download URL: {download_url[:100] if download_url else 'None'}...")
-        
-        if not download_url:
-            error_msg = "⚠️ Запись завершена, но download_url отсутствует"
-            logger.warning(error_msg)
-            send_message_to_telegram(error_msg)
-            return {"status": "no_download_url"}
+        if not audio_file:
+            audio_file = recording_files[0]
+        if not video_file:
+            video_file = audio_file
         
         meeting_topic = object_data.get("topic", "Встреча")
         download_token = data.get("download_token")
         logger.info(f"Тема встречи: {meeting_topic}")
         
-        # Быстро отвечаем на webhook, чтобы избежать таймаута
-        # Обработку запускаем в фоне
         logger.info("Запускаю асинхронную обработку записи...")
         asyncio.create_task(
-            process_recording_async(download_url, recording_file, meeting_topic, download_token)
+            process_recording_async(
+                audio_file, video_file, meeting_topic, download_token
+            )
         )
         
         logger.info("Webhook обработан успешно")
@@ -226,7 +219,10 @@ async def zoom_webhook(request: Request):
 
 
 async def process_recording_async(
-    download_url: str, recording_file: dict, meeting_topic: str, download_token: str | None = None
+    audio_recording: dict,
+    video_recording: dict,
+    meeting_topic: str,
+    download_token: str | None = None,
 ):
     """
     Асинхронная обработка записи: скачивание, транскрипция и отправка в Telegram
@@ -238,25 +234,41 @@ async def process_recording_async(
         
         # Скачиваем файл во временную директорию
         with tempfile.TemporaryDirectory() as temp_dir:
-            file_extension = recording_file.get("file_extension", "mp4")
-            file_path = os.path.join(temp_dir, f"recording.{file_extension}")
-            
-            # Скачиваем файл
-            download_zoom_file(download_url, file_path, access_token=download_token)
-            
-            # Отправляем файл записи в Telegram
+            video_extension = video_recording.get("file_extension", "mp4")
+            video_path = os.path.join(temp_dir, f"recording_video.{video_extension}")
+            download_zoom_file(
+                video_recording.get("download_url"),
+                video_path,
+                access_token=download_token,
+            )
             send_message_to_telegram(f"📹 Отправляю запись встречи: *{meeting_topic}*")
-            send_file_to_telegram(file_path, caption=f"🎥 Запись встречи: {meeting_topic}")
+            send_file_to_telegram(video_path, caption=f"🎥 Запись встречи: {meeting_topic}")
             
-            # Транскрибируем аудио
+            audio_extension = audio_recording.get("file_extension", video_extension)
+            audio_path = video_path
+            if audio_recording.get("id") != video_recording.get("id") or audio_extension.lower() != video_extension.lower():
+                audio_path = os.path.join(temp_dir, f"recording_audio.{audio_extension}")
+                download_zoom_file(
+                    audio_recording.get("download_url"),
+                    audio_path,
+                    access_token=download_token,
+                )
+            
             send_message_to_telegram("🎤 Транскрибирую аудио...")
-            transcription = transcribe_audio(file_path)
+            transcription = transcribe_audio(audio_path)
+            
+            # Сохраняем транскрипт в файл
+            transcript_path = os.path.join(temp_dir, "transcript.txt")
+            with open(transcript_path, "w", encoding="utf-8") as transcript_file:
+                transcript_file.write(transcription.strip())
+            send_file_to_telegram(
+                transcript_path, caption=f"🗒️ Полная транскрибация: {meeting_topic}"
+            )
             
             # Преобразуем в формат "планы и задачи"
             send_message_to_telegram("📝 Форматирую в планы и задачи...")
             formatted_text = convert_to_plans_and_tasks(transcription)
             
-            # Отправляем результат в формате "планы и задачи" в Telegram
             final_message = f"📋 *Планы и задачи из встречи: {meeting_topic}*\n\n{formatted_text}"
             send_message_to_telegram(final_message)
             
