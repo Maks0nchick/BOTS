@@ -2,6 +2,8 @@ import os
 import asyncio
 import tempfile
 import logging
+import hmac
+import hashlib
 from fastapi import FastAPI, Request
 from telegram_logic import send_message_to_telegram, send_file_to_telegram
 from zoom_logic import download_zoom_file, transcribe_audio
@@ -10,6 +12,8 @@ from text_logic import convert_to_plans_and_tasks
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+ZOOM_WEBHOOK_SECRET_TOKEN = os.getenv("ZOOM_WEBHOOK_SECRET_TOKEN", "")
 
 app = FastAPI()
 
@@ -67,9 +71,19 @@ async def zoom_webhook_get(request: Request):
     
     if plain_token:
         logger.info(f"Получен challenge token: {plain_token}")
-        # Zoom ожидает получить токен обратно в ответе
-        # Это подтверждает, что мы владеем этим endpoint
-        return {"plainToken": plain_token}
+        response = {"plainToken": plain_token}
+
+        if ZOOM_WEBHOOK_SECRET_TOKEN:
+            encrypted_token = hmac.new(
+                ZOOM_WEBHOOK_SECRET_TOKEN.encode(),
+                plain_token.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            response["encryptedToken"] = encrypted_token
+        else:
+            logger.warning("ZOOM_WEBHOOK_SECRET_TOKEN не установлен — validation может не пройти")
+
+        return response
     else:
         # Если токена нет, возвращаем обычный ответ
         logger.info("Challenge token не найден, возвращаю обычный ответ")
@@ -122,8 +136,20 @@ async def zoom_webhook(request: Request):
             plain_token = payload.get("plainToken")
             if plain_token:
                 logger.info(f"Валидация URL: получен plainToken: {plain_token}")
-                # Zoom ожидает получить токен обратно для подтверждения владения endpoint
-                return {"plainToken": plain_token}
+                response = {"plainToken": plain_token}
+
+                if ZOOM_WEBHOOK_SECRET_TOKEN:
+                    encrypted_token = hmac.new(
+                        ZOOM_WEBHOOK_SECRET_TOKEN.encode(),
+                        plain_token.encode(),
+                        hashlib.sha256,
+                    ).hexdigest()
+                    response["encryptedToken"] = encrypted_token
+                else:
+                    logger.warning(
+                        "ZOOM_WEBHOOK_SECRET_TOKEN не установлен — validation может не пройти"
+                    )
+                return response
             else:
                 logger.warning("Валидация URL: plainToken не найден в payload")
                 return {"status": "error", "error": "plainToken not found"}

@@ -39,6 +39,7 @@
 6. Добавь новый webhook:
    - **Event Subscription URL**: `https://your-railway-app.railway.app/zoom/webhook`
    - **Events**: Выбери событие `recording.completed` (Recording has completed)
+   - **Secret Token**: сгенерируй или скопируй значение, затем добавь его в Railway как `ZOOM_WEBHOOK_SECRET_TOKEN`
 7. Сохрани настройки
 8. Zoom может отправить тестовый запрос для валидации - проверь логи в Railway
 
@@ -64,6 +65,7 @@
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 OPENAI_API_KEY=your_openai_api_key  # Опционально
+ZOOM_WEBHOOK_SECRET_TOKEN=secret_token_from_zoom
 PORT=8000  # Автоматически устанавливается Railway
 ```
 
