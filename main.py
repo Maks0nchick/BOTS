@@ -2,7 +2,7 @@ import os
 import asyncio
 import tempfile
 from fastapi import FastAPI, Request
-from telegram_logic import send_message_to_telegram
+from telegram_logic import send_message_to_telegram, send_file_to_telegram
 from zoom_logic import download_zoom_file, transcribe_audio
 from text_logic import convert_to_plans_and_tasks
 
@@ -102,6 +102,10 @@ async def process_recording_async(download_url: str, recording_file: dict, meeti
             # Скачиваем файл
             download_zoom_file(download_url, file_path)
             
+            # Отправляем файл записи в Telegram
+            send_message_to_telegram(f"📹 Отправляю запись встречи: *{meeting_topic}*")
+            send_file_to_telegram(file_path, caption=f"🎥 Запись встречи: {meeting_topic}")
+            
             # Транскрибируем аудио
             send_message_to_telegram("🎤 Транскрибирую аудио...")
             transcription = transcribe_audio(file_path)
@@ -110,7 +114,7 @@ async def process_recording_async(download_url: str, recording_file: dict, meeti
             send_message_to_telegram("📝 Форматирую в планы и задачи...")
             formatted_text = convert_to_plans_and_tasks(transcription)
             
-            # Отправляем результат в Telegram
+            # Отправляем результат в формате "планы и задачи" в Telegram
             final_message = f"📋 *Планы и задачи из встречи: {meeting_topic}*\n\n{formatted_text}"
             send_message_to_telegram(final_message)
             
